@@ -1,0 +1,23 @@
+{
+  "name": "node-red-contrib-polygon",
+  "version": "0.0.5",
+  "description": "Piecewise linear interpolation with up to 20 XY pairs; robust endpoint extrapolation.",
+  "keywords": [
+    "node-red",
+    "interpolation",
+    "linear",
+    "breakpoints",
+    "extrapolation"
+  ],
+  "author": "Energy Smart Home",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://www.npmjs.com/package/node-red-contrib-polygon"
+  },
+  "node-red": {
+    "nodes": {
+      "polygon": "nodes/polygon.js"
+    }
+  }
+}

@@ -1,0 +1,257 @@
+<script type="text/javascript">
+    (function () {
+
+        // ==== Segédfüggvények a megjelenített (inline) hibajelöléshez ====
+
+        // Ellenőrzi: ha Use be van pipálva, X és Y is legyen szám (vizuális jelzéshez)
+        function validateUsedXY() {
+            let ok = true;
+
+            // előző XY hibajelölés törlése
+            for (let i = 1; i <= 20; i++) {
+                $("#node-input-x" + i).removeClass("input-error-xy");
+                $("#node-input-y" + i).removeClass("input-error-xy");
+            }
+
+            for (let i = 1; i <= 20; i++) {
+                const used = $("#node-input-use" + i).is(":checked");
+                const xv = parseFloat($("#node-input-x" + i).val());
+                const yv = parseFloat($("#node-input-y" + i).val());
+                if (used) {
+                    const xOk = Number.isFinite(xv);
+                    const yOk = Number.isFinite(yv);
+                    if (!xOk) { $("#node-input-x" + i).addClass("input-error-xy"); ok = false; }
+                    if (!yOk) { $("#node-input-y" + i).addClass("input-error-xy"); ok = false; }
+                }
+            }
+            $("#xy-required-tip").toggle(!ok);
+            return ok;
+        }
+
+        // Ellenőrzi: a bejelölt sorok X-e szigorúan növekvő-e (vizuális jelzéshez)
+        function validateIncreasingXs() {
+            let prev = -Infinity;
+            let ok = true;
+
+            // előző X hibajelölés törlése
+            for (let i = 1; i <= 20; i++) {
+                $("#node-input-x" + i).removeClass("input-error-x");
+            }
+
+            for (let i = 1; i <= 20; i++) {
+                const used = $("#node-input-use" + i).is(":checked");
+                const xv = parseFloat($("#node-input-x" + i).val());
+                if (used) {
+                    if (!Number.isFinite(xv)) {
+                        // ezt a hibát az XY kötelező jelzi, az X-rendezés itt csak a növekvőséget vizsgálja
+                        ok = false; // lesz hiba (de nem jelöljük itt külön)
+                        break;
+                    }
+                    if (xv <= prev) {
+                        $("#node-input-x" + i).addClass("input-error-x");
+                        ok = false;
+                        break;
+                    }
+                    prev = xv;
+                }
+            }
+            $("#x-order-tip").toggle(!ok);
+            return ok;
+        }
+
+        function renderInlineHints() {
+            const okXY = validateUsedXY();
+            const okOrder = validateIncreasingXs();
+            return okXY && okOrder;
+        }
+
+        // ==== Per-mező validátorok (csak a saját mezőt érintik!) ====
+
+        function makeXValidator(i) {
+            return function (v) {
+                const usedEl = document.getElementById("node-input-use" + i);
+                if (!usedEl) return true;              // DOM még nincs kész → ne blokkoljunk
+
+                if (!usedEl.checked) return true;      // nincs Use pipálva → nem kötelező
+                const xv = parseFloat(v);
+                if (!Number.isFinite(xv)) return false;
+
+                // utolsó korábbi, bejelölt és érvényes X
+                let prev = -Infinity;
+                for (let j = 1; j < i; j++) {
+                    const prevUse = document.getElementById("node-input-use" + j);
+                    const prevX = document.getElementById("node-input-x" + j);
+                    if (!prevUse || !prevX) continue;
+                    if (prevUse.checked) {
+                        const xj = parseFloat(prevX.value);
+                        if (Number.isFinite(xj)) prev = xj;
+                    }
+                }
+                return xv > prev;
+            };
+        }
+
+        function makeYValidator(i) {
+            return function (v) {
+                const usedEl = document.getElementById("node-input-use" + i);
+                if (!usedEl) return true;              // DOM még nincs kész
+                if (!usedEl.checked) return true;      // nincs Use pipálva → nem kötelező
+                const yv = parseFloat(v);
+                return Number.isFinite(yv);
+            };
+        }
+
+        RED.nodes.registerType('polygon', {
+            category: 'function',
+            color: '#E2D96E',
+            defaults: (function () {
+                const d = {
+                    name: { value: "" },
+                    extrapolate: { value: true }
+                };
+                for (let i = 1; i <= 20; i++) {
+                    // Use: be/ki – X/Y csak akkor kötelező, ha Use be van pipálva
+                    d["use" + i] = { value: false };
+                    d["x" + i] = { value: "", validate: makeXValidator(i) };
+                    d["y" + i] = { value: "", validate: makeYValidator(i) };
+                }
+                return d;
+            })(),
+            inputs: 1,
+            outputs: 1,  // csak OUT
+            icon: "font-awesome/fa-sliders",
+            label: function () { return this.name || "polygon"; },
+            oneditprepare: function () {
+                const that = this;
+                const tbody = $("#polygon-pairs-body");
+                tbody.empty();
+
+                for (let i = 1; i <= 20; i++) {
+                    const row = $(`
+                    <tr>
+                        <td style="text-align:center"><input type="checkbox" id="node-input-use${i}"></td>
+                        <td><input type="number" step="any" id="node-input-x${i}" style="width:100%"></td>
+                        <td><input type="number" step="any" id="node-input-y${i}" style="width:100%"></td>
+                        <td style="color:#888">#${i}</td>
+                    </tr>`);
+                    tbody.append(row);
+
+                    // Prefill
+                    row.find("#node-input-use" + i).prop("checked", !!that["use" + i]);
+                    if (that["x" + i] !== undefined) { row.find("#node-input-x" + i).val(that["x" + i]); }
+                    if (that["y" + i] !== undefined) { row.find("#node-input-y" + i).val(that["y" + i]); }
+
+                    // Ha a Use változik, kényszerítsük újraellenőrzésre a sor X/Y mezőit
+                    (function (idx) {
+                        $("#node-input-use" + idx).on("change", function () {
+                            $("#node-input-x" + idx).trigger("change");
+                            $("#node-input-y" + idx).trigger("change");
+                            renderInlineHints();
+                        });
+                    })(i);
+                }
+
+                $("#node-input-extrapolate").prop(
+                    "checked",
+                    (that.extrapolate !== undefined) ? !!that.extrapolate : true
+                );
+
+                // Élő vizuális validáció bármilyen változásra
+                let raf = null;
+                function scheduleHints() {
+                    if (raf) cancelAnimationFrame(raf);
+                    raf = requestAnimationFrame(() => { raf = null; renderInlineHints(); });
+                }
+                $("#polygon-pairs-body").on("input change", "input", function () {
+                    scheduleHints();
+                });
+
+                // Megnyitáskor egyszer frissítsük a tippeket és a saját jelöléseket
+                renderInlineHints();
+            },
+            oneditsave: function () {
+                // Mentés előtt futtassuk le a vizuális ellenőrzést is – a Node-RED per-mező validátorai
+                // úgyis megakadályozzák a mentést, ha bármely mező hibás.
+                if (!renderInlineHints()) {
+                    // Adjunk felhasználóbarát jelzést
+                    RED.notify("Correct the highlighted field(s): the X and Y fields in the checked rows are required, and the X values must be strictly increasing.", "error");
+                    return;
+                }
+
+                for (let i = 1; i <= 20; i++) {
+                    this["use" + i] = $("#node-input-use" + i).is(":checked");
+                    this["x" + i] = $("#node-input-x" + i).val();
+                    this["y" + i] = $("#node-input-y" + i).val();
+                }
+                this.extrapolate = $("#node-input-extrapolate").is(":checked");
+            }
+        });
+    })();
+</script>
+
+<style>
+    /* X növekvőség hiba */
+    .input-error-x {
+        border-color: #c00 !important;
+        box-shadow: 0 0 0 2px rgba(204, 0, 0, 0.15);
+    }
+
+    /* Kötelező mező hiba (X vagy Y hiányzik/be nem szám) */
+    .input-error-xy {
+        border-color: #e67e22 !important;
+        box-shadow: 0 0 0 2px rgba(230, 126, 34, 0.15);
+    }
+
+    /* Keep the Extrapolate checkbox text on the same line as the checkbox */
+    .form-tips-inline { 
+        display: inline-block; 
+        margin-left: 8px; 
+        vertical-align: middle; 
+    }
+
+</style>
+
+<script type="text/x-red" data-template-name="polygon">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="polygon">
+    </div>
+    <div class="form-row">
+        <label for="node-input-extrapolate"><i class="fa fa-arrows-h"></i> Extrapolate</label>
+        <input type="checkbox" id="node-input-extrapolate" style="vertical-align: middle;">
+        <span class="form-tips form-tips-inline">On: linear extrapolation at the edges. Off: clamp to Y1/Yn.</span>
+    </div>
+
+    <div class="form-tips">Specify up to 20 breakpoints (X, Y). Check the "Use" box for the rows you want to use.</div>
+    <table class="red-ui-editor-text-table" style="width:100%; margin-top:8px">
+        <thead>
+            <tr>
+                <th style="width:50px;text-align:center">Use</th>
+                <th style="width:40%">X</th>
+                <th style="width:40%">Y</th>
+                <th>#</th>
+            </tr>
+        </thead>
+        <tbody id="polygon-pairs-body"></tbody>
+    </table>
+
+    <div class="form-tips" id="xy-required-tip" style="display:none; color:#e67e22;">
+        In checked rows, <b>both X and Y</b> are required and must be numbers.
+    </div>
+    <div class="form-tips" id="x-order-tip" style="display:none; color:#c00;">
+        The X values in checked (Use ✓) rows must be <b>strictly increasing</b> (X<sub>n</sub> &lt; X<sub>n+1</sub>).
+    </div>
+</script>
+
+<script type="text/x-red" data-help-name="polygon">
+    <p><b>Polygon</b> – linear interpolation between specified breakpoints, with optional extrapolation at the edges.</p>
+    <ul>
+      <li>Input: <code>msg.payload</code> (number)</li>
+      <li>20 rows: <i>Use</i> + <i>X</i> + <i>Y</i> – if the row is checked, <b>X and Y are required</b>; X values must be increasing</li>
+      <li>Extrapolate: On – uses the slope of the outermost two points outside the range; Off – clamps</li>
+      <li>If X matches exactly (IN = Xk): OUT = Yk</li>
+    </ul>
+    <h4>Output</h4>
+    <p><b>OUT</b> – calculated value (<code>msg.payload</code>), plus <code>msg.n_bp</code>, <code>msg.segment</code>.</p>
+    <p><i>If there is an error, no message is sent on OUT; the error is shown in the Debug panel.</i></p>
+</script>
