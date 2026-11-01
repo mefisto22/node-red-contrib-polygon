@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-polygon",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "Piecewise linear interpolation with up to 20 XY pairs; robust endpoint extrapolation.",
   "keywords": [
     "node-red",
@@ -13,11 +13,30 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://www.npmjs.com/package/node-red-contrib-polygon"
+    "url": "git+https://github.com/mefisto22/node-red-contrib-polygon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mefisto22/node-red-contrib-polygon/issues"
+  },
+  "homepage": "https://github.com/mefisto22/node-red-contrib-polygon#readme",
+  "files": [
+    "nodes/"
+  ],
+  "scripts": {
+    "test": "mocha \"test/**/*_spec.js\""
+  },
+  "engines": {
+    "node": ">=14"
   },
   "node-red": {
+    "version": ">=1.0.0",
     "nodes": {
       "polygon": "nodes/polygon.js"
     }
+  },
+  "devDependencies": {
+    "mocha": "^11.7.0",
+    "node-red": "^4.1.0",
+    "node-red-node-test-helper": "^0.3.4"
   }
 }

@@ -1,6 +1,30 @@
 <script type="text/javascript">
     (function () {
 
+        // Szigorú számértelmezés – ugyanaz, mint a runtime-ban (nodes/lib/interpolate.js)
+        function toNumber(v) {
+            if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
+            if (typeof v === "string") {
+                const s = v.trim();
+                if (s === "") return NaN;
+                const n = Number(s);
+                return Number.isFinite(n) ? n : NaN;
+            }
+            return NaN;
+        }
+
+        // Nyitott szerkesztőablakban a DOM-ból olvasunk, egyébként (import, deploy-ellenőrzés)
+        // a node elmentett tulajdonságaiból – így a hibás flow a szerkesztőn kívül is hibásnak látszik
+        function isUsed(node, j) {
+            const el = document.getElementById("node-input-use" + j);
+            return el ? el.checked : !!(node && node["use" + j]);
+        }
+
+        function fieldValue(node, prop, j) {
+            const el = document.getElementById("node-input-" + prop + j);
+            return toNumber(el ? el.value : (node ? node[prop + j] : undefined));
+        }
+
         // ==== Segédfüggvények a megjelenített (inline) hibajelöléshez ====
 
         // Ellenőrzi: ha Use be van pipálva, X és Y is legyen szám (vizuális jelzéshez)
@@ -15,8 +39,8 @@
 
             for (let i = 1; i <= 20; i++) {
                 const used = $("#node-input-use" + i).is(":checked");
-                const xv = parseFloat($("#node-input-x" + i).val());
-                const yv = parseFloat($("#node-input-y" + i).val());
+                const xv = toNumber($("#node-input-x" + i).val());
+                const yv = toNumber($("#node-input-y" + i).val());
                 if (used) {
                     const xOk = Number.isFinite(xv);
                     const yOk = Number.isFinite(yv);
@@ -40,13 +64,11 @@
 
             for (let i = 1; i <= 20; i++) {
                 const used = $("#node-input-use" + i).is(":checked");
-                const xv = parseFloat($("#node-input-x" + i).val());
+                const xv = toNumber($("#node-input-x" + i).val());
                 if (used) {
-                    if (!Number.isFinite(xv)) {
-                        // ezt a hibát az XY kötelező jelzi, az X-rendezés itt csak a növekvőséget vizsgálja
-                        ok = false; // lesz hiba (de nem jelöljük itt külön)
-                        break;
-                    }
+                    // a hiányzó X-et az XY-kötelező jelzés mutatja; itt kihagyjuk, és a többi sort
+                    // tovább vizsgáljuk, hogy egy üres mező ne rejtse el a későbbi sorrendhibát
+                    if (!Number.isFinite(xv)) continue;
                     if (xv <= prev) {
                         $("#node-input-x" + i).addClass("input-error-x");
                         ok = false;
@@ -69,23 +91,16 @@
 
         function makeXValidator(i) {
             return function (v) {
-                const usedEl = document.getElementById("node-input-use" + i);
-                if (!usedEl) return true;              // DOM még nincs kész → ne blokkoljunk
-
-                if (!usedEl.checked) return true;      // nincs Use pipálva → nem kötelező
-                const xv = parseFloat(v);
+                if (!isUsed(this, i)) return true;     // nincs Use pipálva → nem kötelező
+                const xv = toNumber(v);
                 if (!Number.isFinite(xv)) return false;
 
                 // utolsó korábbi, bejelölt és érvényes X
                 let prev = -Infinity;
                 for (let j = 1; j < i; j++) {
-                    const prevUse = document.getElementById("node-input-use" + j);
-                    const prevX = document.getElementById("node-input-x" + j);
-                    if (!prevUse || !prevX) continue;
-                    if (prevUse.checked) {
-                        const xj = parseFloat(prevX.value);
-                        if (Number.isFinite(xj)) prev = xj;
-                    }
+                    if (!isUsed(this, j)) continue;
+                    const xj = fieldValue(this, "x", j);
+                    if (Number.isFinite(xj)) prev = xj;
                 }
                 return xv > prev;
             };
@@ -93,11 +108,8 @@
 
         function makeYValidator(i) {
             return function (v) {
-                const usedEl = document.getElementById("node-input-use" + i);
-                if (!usedEl) return true;              // DOM még nincs kész
-                if (!usedEl.checked) return true;      // nincs Use pipálva → nem kötelező
-                const yv = parseFloat(v);
-                return Number.isFinite(yv);
+                if (!isUsed(this, i)) return true;     // nincs Use pipálva → nem kötelező
+                return Number.isFinite(toNumber(v));
             };
         }
 
@@ -170,20 +182,11 @@
                 renderInlineHints();
             },
             oneditsave: function () {
-                // Mentés előtt futtassuk le a vizuális ellenőrzést is – a Node-RED per-mező validátorai
-                // úgyis megakadályozzák a mentést, ha bármely mező hibás.
+                // A mezőket (node-input-*) a Node-RED maga menti a defaults alapján; hibás mezőnél
+                // a node érvénytelennek jelölődik (piros háromszög). Itt csak figyelmeztetünk.
                 if (!renderInlineHints()) {
-                    // Adjunk felhasználóbarát jelzést
-                    RED.notify("Correct the highlighted field(s): the X and Y fields in the checked rows are required, and the X values must be strictly increasing.", "error");
-                    return;
+                    RED.notify("Correct the highlighted field(s): the X and Y fields in the checked rows are required, and the X values must be strictly increasing.", "warning");
                 }
-
-                for (let i = 1; i <= 20; i++) {
-                    this["use" + i] = $("#node-input-use" + i).is(":checked");
-                    this["x" + i] = $("#node-input-x" + i).val();
-                    this["y" + i] = $("#node-input-y" + i).val();
-                }
-                this.extrapolate = $("#node-input-extrapolate").is(":checked");
             }
         });
     })();
@@ -246,12 +249,12 @@
 <script type="text/x-red" data-help-name="polygon">
     <p><b>Polygon</b> – linear interpolation between specified breakpoints, with optional extrapolation at the edges.</p>
     <ul>
-      <li>Input: <code>msg.payload</code> (number)</li>
+      <li>Input: <code>msg.payload</code> (number or numeric string, e.g. <code>"21.5"</code>)</li>
       <li>20 rows: <i>Use</i> + <i>X</i> + <i>Y</i> – if the row is checked, <b>X and Y are required</b>; X values must be increasing</li>
       <li>Extrapolate: On – uses the slope of the outermost two points outside the range; Off – clamps</li>
       <li>If X matches exactly (IN = Xk): OUT = Yk</li>
     </ul>
     <h4>Output</h4>
     <p><b>OUT</b> – calculated value (<code>msg.payload</code>), plus <code>msg.n_bp</code>, <code>msg.segment</code>.</p>
-    <p><i>If there is an error, no message is sent on OUT; the error is shown in the Debug panel.</i></p>
+    <p><i>If there is an error, no message is sent on OUT; the node shows a red status and the error is shown in the Debug panel (it can be handled with a Catch node).</i></p>
 </script>
